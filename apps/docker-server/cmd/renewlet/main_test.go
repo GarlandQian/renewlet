@@ -91,6 +91,73 @@ func TestExternalRequestOriginFallsBackWhenForwardedHostIsInvalid(t *testing.T) 
 	}
 }
 
+func TestRequestOriginUsesExternalForwardedOriginForAuth(t *testing.T) {
+	tests := []struct {
+		name      string
+		forwarded string
+		xProto    string
+		xHost     string
+	}{
+		{name: "forwarded", forwarded: `for=192.0.2.60;proto=https;host=fnos.example`},
+		{name: "x-forwarded", xProto: "https", xHost: "fnos.example"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:3000/api/app/auth/login", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.forwarded != "" {
+				request.Header.Set("Forwarded", tt.forwarded)
+			}
+			if tt.xProto != "" {
+				request.Header.Set("X-Forwarded-Proto", tt.xProto)
+			}
+			if tt.xHost != "" {
+				request.Header.Set("X-Forwarded-Host", tt.xHost)
+			}
+			request.Header.Set("Origin", "https://fnos.example")
+
+			if got := requestOrigin(request); got != "https://fnos.example" {
+				t.Fatalf("requestOrigin() = %q, want https://fnos.example", got)
+			}
+			if err := requireSameOriginRequest(request); err != nil {
+				t.Fatalf("requireSameOriginRequest() rejected external fnOS origin: %v", err)
+			}
+		})
+	}
+}
+
+func TestRequireSameOriginRequestRejectsMissingOrMismatchedOrigin(t *testing.T) {
+	tests := []struct {
+		name    string
+		origin  string
+		referer string
+	}{
+		{name: "missing", origin: "", referer: ""},
+		{name: "origin mismatch", origin: "https://attacker.example", referer: ""},
+		{name: "referer mismatch", origin: "", referer: "https://attacker.example/login"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:3000/api/app/auth/login", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set("Forwarded", `proto=https;host=fnos.example`)
+			if tt.origin != "" {
+				request.Header.Set("Origin", tt.origin)
+			}
+			if tt.referer != "" {
+				request.Header.Set("Referer", tt.referer)
+			}
+			if err := requireSameOriginRequest(request); err == nil {
+				t.Fatal("requireSameOriginRequest() accepted an invalid request origin")
+			}
+		})
+	}
+}
+
 func TestStaticCacheControlSplitsAssetsFromHTMLFallback(t *testing.T) {
 	fsys := fstest.MapFS{
 		"index.html":                   {Data: []byte("<!doctype html>")},

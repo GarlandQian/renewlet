@@ -539,18 +539,15 @@ func urlParse(value string) (*url.URL, error) {
 }
 
 func requestOrigin(request *http.Request) string {
-	host := strings.TrimSpace(request.Host)
-	if host == "" {
+	if strings.TrimSpace(request.Host) == "" {
 		return ""
 	}
-	proto := "http"
-	if request.TLS != nil {
-		proto = "https"
+	// 认证同源判断必须与公开 URL 共用外部 Origin 解析；fnOS 网关看到的是内部监听地址，浏览器看到的是转发后的协议和 Host。
+	origin := externalRequestOrigin(request)
+	if origin.Scheme == "" || origin.Host == "" {
+		return ""
 	}
-	if forwarded := strings.ToLower(strings.TrimSpace(request.Header.Get("X-Forwarded-Proto"))); forwarded == "https" {
-		proto = "https"
-	}
-	return proto + "://" + host
+	return origin.Scheme + "://" + origin.Host
 }
 
 func sessionTokenFromRequest(request *http.Request) string {
