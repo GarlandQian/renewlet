@@ -123,7 +123,7 @@ func TestAuthLoginRequiresTurnstileBeforePasswordFlow(t *testing.T) {
 	}
 }
 
-func TestAuthLoginAcceptsExternalForwardedOriginAndKeepsCrossOriginBlocked(t *testing.T) {
+func TestAuthLoginUsesBrowserSameOriginThroughFNOSProxyAndBlocksCrossSite(t *testing.T) {
 	app := newSchemaTestApp(t)
 	if err := ensureSchema(app); err != nil {
 		t.Fatal(err)
@@ -131,8 +131,10 @@ func TestAuthLoginAcceptsExternalForwardedOriginAndKeepsCrossOriginBlocked(t *te
 	user, _ := createRouteTestUser(t, app, "fnos-origin")
 
 	forwardedHeaders := map[string]string{
-		"Forwarded": `for=192.0.2.60;proto=https;host=fnos.example`,
-		"Origin":    "https://fnos.example",
+		"X-Forwarded-Proto": "https",
+		"X-Forwarded-Host":  "watchcow-renewlet-web-1.example.fnos.net",
+		"Sec-Fetch-Site":    "same-origin",
+		"Origin":            "https://office.app.5ddd.com:41381",
 	}
 	success := serveTestRequestWithHeaders(t, app, http.MethodPost, "/api/app/auth/login", loginJSON(user.Email()), "", forwardedHeaders)
 	if success.Code != http.StatusOK {
@@ -140,8 +142,10 @@ func TestAuthLoginAcceptsExternalForwardedOriginAndKeepsCrossOriginBlocked(t *te
 	}
 
 	blockedHeaders := map[string]string{
-		"Forwarded": `for=192.0.2.60;proto=https;host=fnos.example`,
-		"Origin":    "https://attacker.example",
+		"X-Forwarded-Proto": "https",
+		"X-Forwarded-Host":  "watchcow-renewlet-web-1.example.fnos.net",
+		"Sec-Fetch-Site":    "cross-site",
+		"Origin":            "https://office.app.5ddd.com:41381",
 	}
 	blocked := serveTestRequestWithHeaders(t, app, http.MethodPost, "/api/app/auth/login", loginJSON(user.Email()), "", blockedHeaders)
 	if blocked.Code != http.StatusForbidden {
